@@ -1,0 +1,374 @@
+---
+title: "BFAS_SF_ptwo"
+author: "Christopher"
+date: "`r Sys.Date()`"
+output: 
+  html_document: 
+    toc: yes
+    toc_depth: 3
+    highlight: textmate
+    theme: yeti
+    fig_height: 7.5
+    keep_md: yes
+---
+
+```{r set opts, include = F}
+knitr::opts_chunk$set(fig.width=12, fig.height=8, echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+```{r setup, warnings=FALSE, comment=F}
+
+
+library(tidyverse, quietly = TRUE)
+library(magrittr, quietly = TRUE)
+library(sjmisc, quietly = TRUE)
+library(corrr, quietly = TRUE)
+library(knitr, quietly = TRUE)
+library(kableExtra, quietly = TRUE)
+library(reactable, quietly = TRUE)
+
+```
+
+# Reanalysis of the Study 2 Raw Data
+
+```{r data, message=FALSE, warning=FALSE}
+
+s2_possible_attn <- read_csv("Study2Data_manip.csv") %>%
+  select(ResponseId, easy_attn, easy_attn2, Chk1_1:Less,ABL2, total_na)
+
+s2_bfas <- read_csv("Study2Data_manip.csv") %>% 
+  select(ResponseId, Vol_1:Plt_10, Ind_1:Asrt_10, Ord_1:Ord_10,Enth_1:Asrt_10, Intel_1:Open_10) %>% select(-HAP_1, -HLTH)
+                                                                
+s2_aux_vars <- read_csv("Study2Data_manip.csv") %>% 
+  select(ResponseId,Age, Race, Edu, GEN, HHincome, ABLE:Less, ABL2, POP, HOT, HLTH, 
+         starts_with("GRP"), starts_with("IMP")) %>%
+  rename(imp_fam = IMP_1, imp_frnd = IMP_2, imp_fun =  IMP_3, imp_poli =IMP_4, imp_wrk = IMP_5, imp_relig = IMP_6)
+
+```
+
+## Workflow
+
+-   [x] **screen -- see screening section**
+
+-   [x] **compute competence**
+
+-   [x] ~~**What's up with Sandia?**~~ **Psychometrics, alt forms. (sandia axed)**
+
+-   [x] **note the chosen SF items:**\~\~ ***listed in the code chunk***
+
+-   [x] **score the BFAS and CAS or LATS or whatever our SF gets to be named**\~\~
+
+-   [x] **score relative imp, grips, ~~sandia~~, auxvars**
+
+-   [ ] **Correlation matrices with:**
+
+    -   [x] Big and Little
+
+    -   [x] Importance and Little
+
+    -   [x] Other stuff (GRIPS and small scales) and Little
+
+    -   [x] basic reliability stuff
+
+    -   [ ] present better
+
+-   [ ] **compare with past results**
+
+-   [ ] **anything I'm missing?**
+
+-   [ ] **table focusing on difference (full minus short) correlations with aux vars**
+
+-   [ ] **upload what we have so far to osf, etc**
+
+::: {#Top}
+Compare it to the old correlations, though.
+:::
+
+\#\#Scoring Aux
+
+```{r ABLEaux}
+
+##ability
+s2_aux_vars %>% sjmisc::set_na(., More, na = -99) ->  s2_aux_vars
+s2_aux_vars$Ability <- rowSums(s2_aux_vars[, c(8:10)], na.rm = TRUE)
+s2_aux_vars$SR_Competence <- s2_aux_vars$Ability +  s2_aux_vars$ABL2
+s2_aux_vars <- s2_aux_vars %>% row_means(., contains("GRP"), 
+                         n = 4, append = TRUE, var = "Risk_Pref")
+
+##dumb rev code fxn
+domain_rev_code <- function(x, na.rm = FALSE){
+  (5-x)
+}
+
+
+## domain relative importance
+domains_df <- s2_aux_vars  %>% select(imp_fam:imp_relig) %>% mutate_all(., domain_rev_code)
+domains_df <- domains_df %>% row_sums(., contains("imp"), 
+                         n = 2, append = TRUE, var = "Imp_Tot")
+domains_df <- domains_df %>% rowwise() %>% mutate(., rel_fam = imp_fam/Imp_Tot) %>%
+  mutate(., rel_frnd = imp_frnd/Imp_Tot) %>% mutate(., rel_fun = imp_fun/Imp_Tot) %>% 
+  mutate(., rel_poli = imp_poli/Imp_Tot) %>% mutate(., rel_wrk = imp_wrk/Imp_Tot) %>% 
+  mutate(., rel_relig = imp_relig/Imp_Tot)
+
+```
+
+## Scoring Notes:
+
+domains are available as single items or relative importance (domain importance rating/sum of them), but nnote that there are multiple ways this is scored.
+
+Able correlates with Able 2 at `r round(cor(s2_aux_vars$Ability, s2_aux_vars$ABL2), digits=2)`
+
+```{r ablplot, echo=TRUE, fig.height=4, fig.width=4}
+scatter.smooth(s2_aux_vars$Ability, s2_aux_vars$ABL2)
+## domain relative importance -- just a check.
+
+```
+
+Self-reported ability items work well together for an index. 
+
+## Reversing BFAS, Scoring Full BFAS
+
+```{r afunctionandreversed}
+
+## These are the reversed items in the full BFAS 
+
+rev_bfas <- c("Vol_2", "Vol_4", "Vol_6", "Vol_8", "With_1", "With_3", "With_5", "With_8", "Comp_1", "Comp_4", "Comp_6", "Comp_7", "Comp_9", "Plt_2", "Plt_4", "Plt_7", "Plt_8", "Plt_9", "Plt_10", "Ind_2", "Ind_3", "Ind_4", "Ind_6", "Ind_9", "Ind_10", "Ord_1", "Ord_5", "Ord_7", "Ord_8", "Enth_2", "Enth_3", "Enth_4", "Enth_6", "Enth_7", "Asrt_3", "Asrt_5", "Asrt_8", "Asrt_10", "Intel_2", "Intel_5", "Intel_6", "Intel_9", "Open_5", "Open_8", "Open_9", "Open_10")
+
+s2_bfas_rec <- s2_bfas  %>% modify_at(., .at = rev_bfas, ~6-.x)
+head(cbind(s2_bfas$Open_10, s2_bfas_rec$Open_10))
+## note -- I thought there were missing oppenness chunks?
+
+
+#rm(s2_bfas)
+
+## SCORING 
+
+s2_bfas_rec <- s2_bfas_rec %>% row_means(., contains("Vol"), 
+                         n = 5, append = TRUE, var = "Volatility")
+s2_bfas_rec <- s2_bfas_rec %>% row_means(., contains("With"), 
+                         n = 5, append = TRUE, var = "Withdrawal")
+s2_bfas_rec <- s2_bfas_rec %>% row_means(., contains("Comp"), 
+                         n = 5, append = TRUE, var = "Compassion")
+s2_bfas_rec <- s2_bfas_rec %>% row_means(., contains("Plt"), 
+                         n = 5, append = TRUE, var = "Politeness")
+s2_bfas_rec <- s2_bfas_rec %>% row_means(., contains("Ind"), 
+                         n = 5, append = TRUE, var = "Industriousness")
+s2_bfas_rec <- s2_bfas_rec %>% row_means(., contains("Ord"), 
+                         n = 5, append = TRUE, var = "Orderliness")
+s2_bfas_rec <- s2_bfas_rec %>% row_means(., contains("Enth"), 
+                         n = 5, append = TRUE, var = "Enthusiasm")
+s2_bfas_rec <- s2_bfas_rec %>% row_means(., contains("Asrt"), 
+                         n = 5, append = TRUE, var = "Assitiveness")
+s2_bfas_rec <- s2_bfas_rec %>% row_means(., contains("Intel"), 
+                         n = 5, append = TRUE, var = "Intellect")
+s2_bfas_rec <- s2_bfas_rec %>% row_means(., contains("Open"), 
+                         n = 5, append = TRUE, var = "Openness")
+
+```
+
+## Scoring our LATS
+
+```{r LATS}
+LATS <- c("Vol_1", "Vol_3", "Vol_9", "Vol_10", "With_2", "With_5", "With_6", "With_10", "Comp_2", "Comp_3", "Comp_8", "Comp_10", "Plt_2", "Plt_6", "Plt_7", "Plt_8", "Ind_2", "Ind_3", "Ind_4", "Ind_10", "Ord_2", "Ord_3", "Ord_6", "Ord_7", "Enth_2", "Enth_3", "Enth_4", "Enth_7", "Asrt_1", "Asrt_2", "Asrt_5", "Asrt_6", "Intel_1", "Intel_2", "Intel_3", "Intel_6", "Open_1", "Open_3", "Open_9", "Open_10")
+
+## because apparently this is what dplyr needs
+s2_LATS <- s2_bfas_rec %>% select(all_of(LATS))
+
+## SCORING 
+
+s2_LATS <- s2_LATS %>% row_means(., contains("Vol"), 
+                                 n = 2, append = TRUE, var = "Volatility_L") %>% 
+  row_means(., contains("With"), n = 2, append = TRUE, var = "Withdrawal_L") %>% 
+  row_means(., contains("Comp"), n = 2, append = TRUE, var = "Compassion_L") %>% 
+  row_means(., contains("Plt"),  n = 2, append = TRUE, var = "Politeness_L") %>% 
+  row_means(., contains("Ind"),n = 2,append = TRUE,var = "Industriousness_L") %>% 
+  row_means(., contains("Ord"), n = 2, append = TRUE, var = "Orderliness_L") %>% 
+  row_means(., contains("Enth"), n = 2, append = TRUE, var = "Enthusiasm_L") %>% 
+  row_means(., contains("Asrt"), n = 2, append = TRUE, var = "Assitiveness_L") %>% 
+  row_means(., contains("Intel"), n = 2, append = TRUE, var = "Intellect_L") %>% 
+  row_means(., contains("Open"), n = 2, append = TRUE, var = "Openness_L")
+
+```
+
+## Original conception of screening (pass/fail) rules
+
+TOTAL BLANKS \> 40% (count \~ 72 for actual questions); fail (1) vs pass (0)
+
+attn checks are: easy_attn & easy_attn2
+
+select the center square (0), any other (1)
+
+ABLE asks: are you more or less competent than average (more, average, less), if more (How much more competent? with an option including "less") and vice versa.
+
+-   only 1 person failed to be consistent, but that's a (0) and a (1) for everyone else.\
+    We would also expect their answer to be consistent with Abl2, but we can skip it if I'm being picky\
+    total of fail/pass attn checks should be ?
+
+A look at all quality indexes, with all irrelevant block selections to be removed
+
+*Out of 5 possible checks, 40ish failed 1 or 2. I think the 2/5 rule works fine here, even though we had not been using it initially.*
+
+### Filtering based on this more stringent requirement.
+
+From the raw data, I have N= 333 with N = 305 fit for analyses. This is in contrast to 321 in the manuscript. The difference mainly comes from using all indices (one of which no one failed).
+
+```{r cleaning it up}
+
+##cleaning it up
+
+s2_possible_attn$box_attn <- if_else(s2_possible_attn$Chk1_1 == "On",  0, 1)
+s2_possible_attn$ableM_attn <- if_else(s2_possible_attn$More == -99,  1, 0)
+s2_possible_attn$ableL_attn <- if_else(s2_possible_attn$Less == -99,  1, 0)
+s2_possible_attn$na_perc_attn <- if_else(s2_possible_attn$total_na >36, 1, 0)
+s2_possible_attn <- s2_possible_attn[, -c(5:12)]
+s2_possible_attn %>% select(easy_attn2, box_attn:na_perc_attn) -> s2_likely_attn
+rmarkdown::paged_table(s2_likely_attn[1:50,])
+attn_fail_tot <-  as.matrix(rowSums(s2_likely_attn, na.rm = TRUE)) 
+table(as.factor(attn_fail_tot)) %>% as.data.frame() %>% 
+  knitr::kable(., "html", col.names = c("# failed", "count"))
+
+## cleaning it up end
+```
+
+```{r bind_filter}
+
+## creating our frame of useable scores (not included are demographics)
+##### 
+scores <- bind_cols(s2_bfas_rec[,102:111], s2_LATS[, 41:50], s2_aux_vars[,c(2,4, 6, 11:13,29, 30)], domains_df[ , -7],  as.data.frame(attn_fail_tot))
+scores <- scores %>% filter(V1 == 0) %>% select(-V1)
+```
+
+```{r alphas}
+lats_alphas <- tibble(.rows = 10, row.names = names(s2_bfas_rec[,102:111]))
+lats_alphas$alphas <- rep(0, 10)
+s2_LATS  %>%  select(Vol_1:Vol_10) %>% 
+  psych::alpha() -> y;y$total[1] -> lats_alphas[1,"alphas"]
+s2_LATS  %>%  select(With_2:With_10) %>%
+  psych::alpha() -> y;y$total[1] -> lats_alphas[2,"alphas"]
+s2_LATS  %>%  select(Comp_2:Comp_10) %>% 
+  psych::alpha() -> y;y$total[1] -> lats_alphas[3,"alphas"] 
+s2_LATS  %>%  select(Plt_2:Plt_8) %>%
+  psych::alpha() -> y;y$total[1] -> lats_alphas[4,"alphas"]
+s2_LATS  %>%  select(Ind_2:Ind_10) %>% 
+  psych::alpha() -> y;y$total[1] -> lats_alphas[5,"alphas"]
+s2_LATS  %>%  select(Ord_2:Ord_7) %>% 
+  psych::alpha() -> y;y$total[1] -> lats_alphas[6,"alphas"] 
+s2_LATS  %>%  select(Enth_2:Enth_7) %>% 
+  psych::alpha() -> y;y$total[1] -> lats_alphas[7,"alphas"]
+s2_LATS  %>%  select(Asrt_1:Asrt_6) %>% 
+  psych::alpha() -> y;y$total[1] -> lats_alphas[8,"alphas"]
+s2_LATS  %>%  select(Intel_1:Intel_6) %>% 
+  psych::alpha()-> y;y$total[1] -> lats_alphas[9,"alphas"]
+s2_LATS  %>%  select(Open_1:Open_10) %>% 
+  psych::alpha() -> y;y$total[1] -> lats_alphas[10,"alphas"]
+
+full_alphas <- tibble(.rows = 10, row.names = names(s2_bfas_rec[,102:111]))
+full_alphas$alphas <- rep(0, 10)
+s2_bfas_rec  %>%  select(Vol_1:Vol_10) %>% 
+  psych::alpha() -> y;y$total[1] -> full_alphas[1,"alphas"]
+s2_bfas_rec  %>%  select(With_1:With_10) %>%
+  psych::alpha() -> y;y$total[1] -> full_alphas[2,"alphas"]
+s2_bfas_rec  %>%  select(Comp_1:Comp_10) %>% 
+  psych::alpha() -> y;y$total[1] -> full_alphas[3,"alphas"] 
+s2_bfas_rec  %>%  select(Plt_1:Plt_10) %>%
+  psych::alpha() -> y;y$total[1] -> full_alphas[4,"alphas"]
+s2_bfas_rec  %>%  select(Ind_1:Ind_10) %>% 
+  psych::alpha() -> y;y$total[1] -> full_alphas[5,"alphas"]
+s2_bfas_rec  %>%  select(Ord_1:Ord_10) %>% 
+  psych::alpha() -> y;y$total[1] -> full_alphas[6,"alphas"] 
+s2_bfas_rec  %>%  select(Enth_1:Enth_10) %>% 
+  psych::alpha() -> y;y$total[1] -> full_alphas[7,"alphas"]
+s2_bfas_rec  %>%  select(Asrt_1:Asrt_10) %>% 
+  psych::alpha() -> y;y$total[1] -> full_alphas[8,"alphas"]
+s2_bfas_rec  %>%  select(Intel_1:Intel_10) %>% 
+  psych::alpha()-> y;y$total[1] -> full_alphas[9,"alphas"]
+s2_bfas_rec  %>%  select(Open_1:Open_10) %>% 
+  psych::alpha() -> y;y$total[1] -> full_alphas[10,"alphas"]
+s2_bfas_rec %>% select(Volatility:Openness) %>% corrr::correlate() %>% shave -> BFAS_cormat 
+s2_LATS %>% select(Volatility_L:Openness_L) %>% corrr::correlate() %>% shave -> LATS_cormat 
+scores %>% dplyr::select(Volatility_L:Openness_L)  -> LATS_scores 
+scores %>% dplyr::select(Volatility:Openness) -> BFAS_scores
+scores %>% dplyr::select(Volatility:Openness_L) -> LATS_BFAS_scores
+
+```
+
+```{r alphas2}
+lats_alphas %>% kbl(caption = "Little BFAS with alphas") %>%
+  kable_styling(full_width = F, bootstrap_options = "condensed", html_font = 'Fira Mono' )
+full_alphas %>% kbl(caption = "Little BFAS with alphas") %>%
+  kable_styling(full_width = F, bootstrap_options = "condensed", html_font = 'Fira Mono' )
+```
+
+## Correlations Follow:
+
+### Full form with Little Form
+
+**I don't like these style options, so let's figure out better table formats**
+
+```{r bfascormat}
+
+## correlation matrix
+scores %>% select(Volatility:Openness_L) %>% correlate(., diagonal = 1) %>% round_num(., digits = 2) -> dom_asp_cormat
+ 
+
+## correlation matrix
+dom_asp_cormat  %>%
+  kbl(caption = "BFAS with Little BFAS") %>%
+  kable_styling(full_width = F, bootstrap_options = "condensed", html_font = 'Fira Mono') %>% 
+  scroll_box(width = "750px", height = "100%")
+                                                             
+  
+```
+
+### LATS with absolute importance
+
+```{r rel}
+
+## build
+scores %>% select(Volatility_L:Openness_L,rel_fam:rel_relig) %>%  
+  correlate() %>% round_num(., digits = 2) -> life_1_cor
+scores %>% select(Volatility_L:Openness_L,imp_fam:imp_relig) %>%
+  correlate() %>% round_num(., digits = 2)  -> life_2_cor
+
+## correlation matrix
+
+life_1_cor  %>%
+  kbl(caption = "Abs Importance  with Little BFAS") %>%
+  kable_styling(full_width = F, bootstrap_options = "condensed", html_font = 'Fira Mono') %>%   scroll_box(width = "750px", height = "100%")
+
+```
+
+### LATS with relative importance
+
+```{r abs}
+
+## correlation matrix
+
+life_2_cor  %>%
+  kbl(caption = "Little BFAS with Absolute Importance") %>%
+  kable_styling(full_width = F, bootstrap_options = "condensed", html_font = 'Fira Mono', ) %>% 
+  scroll_box(width = "750px", height = "100%")
+```
+
+### LATS with GRiPs and the rest
+
+```{r others}
+## correlation matrix
+
+scores %>% select(Volatility_L:Openness_L, Age:SR_Competence) %>% correlate() %>% 
+        sjmisc::round_num(., digits = 2) -> remains_cor
+remains_cor  %>%
+  kbl(caption = "Little BFAS with The Other Stuff") %>%
+  kable_styling(full_width = F, bootstrap_options = "condensed", html_font = 'Fira Mono', ) %>% 
+  scroll_box(width = "750px", height = "100%")
+```
+
+## Code Appendix
+
+------------------------------------------------------------------------
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+
+```
+
+------------------------------------------------------------------------
